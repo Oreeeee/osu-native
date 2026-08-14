@@ -11,6 +11,8 @@
 
         <!-- NativeAOT configuration -->
         <PublishAot>true</PublishAot>
+        <ServerGarbageCollection>true</ServerGarbageCollection>
+        <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
         <OptimizationPreference>Size</OptimizationPreference>
         <XmlResolverIsNetworkingEnabledByDefault>false</XmlResolverIsNetworkingEnabledByDefault>
 
