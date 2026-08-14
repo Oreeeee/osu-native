@@ -1,4 +1,7 @@
-﻿using osu.Game.Online.API;
+﻿using osu.Game.Beatmaps.Legacy;
+using osu.Game.Online.API;
+using osu.Game.Rulesets;
+using osu.Game.Rulesets.Mods;
 using osu.Native.Compiler;
 using osu.Native.Structures;
 
@@ -37,7 +40,28 @@ public unsafe partial class ModsCollectionObject : IOsuNativeObject<ModsCollecti
         return ErrorCode.Success;
     }
 
-
+    /// <summary>
+    /// Adds specified legacy mods to the specified mods collection
+    /// </summary>
+    /// <param name="modsCollectionHandle">The handle of the mods collection.</param>
+    /// <param name="rulesetHandle">The handle for the ruleset of the legacyMods.</param>
+    /// <param name="legacyMods">Flags of the legacy mods to add.</param>
+    [OsuNativeFunction]
+    public static ErrorCode AddLegacyMods(ModsCollectionHandle modsCollectionHandle, RulesetHandle rulesetHandle, uint legacyMods)
+    {
+        ModsCollection mods = modsCollectionHandle.Resolve();
+        Ruleset ruleset = rulesetHandle.Resolve();
+        
+        foreach (Mod mod in ruleset.ConvertFromLegacyMods((LegacyMods)legacyMods))
+        {
+            mods.Add(new APIMod(mod));
+        }
+        
+        mods.Add(new APIMod() {Acronym = "CL"});
+        
+        return ErrorCode.Success;
+    }
+    
     /// <summary>
     /// Removes the specified mod from the specified mods collection.
     /// </summary>
