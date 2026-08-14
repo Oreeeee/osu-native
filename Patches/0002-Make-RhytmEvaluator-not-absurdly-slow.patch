@@ -1,0 +1,80 @@
+From cc408d2b66bd1ed361aca44025b68c1fc31beedb Mon Sep 17 00:00:00 2001
+From: Oreeeee <oree3ee@gmail.com>
+Date: Sat, 15 Aug 2026 01:50:02 +0200
+Subject: [PATCH 2/2] Make RhytmEvaluator not absurdly slow
+
+---
+ .../Evaluators/Speed/RhythmEvaluator.cs       | 21 ++++++++++++++++---
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/osu.Game.Rulesets.Osu/Difficulty/Evaluators/Speed/RhythmEvaluator.cs b/osu.Game.Rulesets.Osu/Difficulty/Evaluators/Speed/RhythmEvaluator.cs
+index 498b130..60b7bfa 100644
+--- a/osu.Game.Rulesets.Osu/Difficulty/Evaluators/Speed/RhythmEvaluator.cs
++++ b/osu.Game.Rulesets.Osu/Difficulty/Evaluators/Speed/RhythmEvaluator.cs
+@@ -4,6 +4,7 @@
+ using System;
+ using System.Collections.Generic;
+ using System.Runtime.CompilerServices;
++using System.Runtime.InteropServices;
+ using osu.Game.Rulesets.Difficulty.Preprocessing;
+ using osu.Game.Rulesets.Difficulty.Utils;
+ using osu.Game.Rulesets.Osu.Difficulty.Preprocessing;
+@@ -13,6 +14,10 @@ namespace osu.Game.Rulesets.Osu.Difficulty.Evaluators.Speed
+ {
+     public static class RhythmEvaluator
+     {
++        // PATCH: Make RhythmEvaluator not absurdly slow
++        [ThreadStatic]
++        private static List<Island> threadLocalIslands;
++
+         /// <summary>
+         /// Calculates a rhythm multiplier for the difficulty of the tap associated with historic data of the current <see cref="OsuDifficultyHitObject"/>.
+         /// </summary>
+@@ -32,7 +37,9 @@ public static double EvaluateDifficultyOf(DifficultyHitObject current)
+             var island = new Island(int.MaxValue);
+             var previousIsland = new Island(int.MaxValue);
+ 
+-            var islands = new List<Island>();
++            // PATCH: Make RhythmEvaluator not absurdly slow
++            threadLocalIslands ??= new List<Island>();
++            var islands = threadLocalIslands;
+ 
+             double startDifficulty = 0; // store the difficulty of the current start of an island to buff for tighter rhythms
+ 
+@@ -134,8 +141,12 @@ public static double EvaluateDifficultyOf(DifficultyHitObject current)
+ 
+                         bool found = false;
+ 
+-                        foreach (var existingIsland in islands)
++                        // PATCH: Make RhythmEvaluator not absurdly slow
++                        var islandSpan = CollectionsMarshal.AsSpan(islands);
++                        //foreach (var existingIsland in islands)
++                        for (int j = 0; j < islandSpan.Length; j++)
+                         {
++                            ref var existingIsland = ref islandSpan[j];
+                             if (existingIsland.AlmostEquals(island, deltaDifferenceEpsilon))
+                             {
+                                 // only increase island occurrences if they're going one after another
+@@ -202,6 +213,9 @@ public static double EvaluateDifficultyOf(DifficultyHitObject current)
+             // If the current island is long we don't want the sum to have as big of an effect
+             rhythmComplexitySum *= DiffUtils.ReverseLerp(island.DeltaCount, 22, 3);
+ 
++            // PATCH: Make RhythmEvaluator not absurdly slow
++            threadLocalIslands.Clear();
++
+             return Math.Sqrt(4 + rhythmComplexitySum * rhythm_overall_multiplier) / 2.0; // produces multiplier that can be applied to strain. range [1, infinity) (not really though)
+         }
+ 
+@@ -219,7 +233,8 @@ private static double getEffectiveDifficulty(double deltaDifferenceRatio)
+         /// <summary>
+         /// An island is a group of consecutive objects with the same delta time.
+         /// </summary>
+-        private class Island
++        // PATCH: Make RhythmEvaluator not absurdly slow
++        private struct Island
+         {
+             /// <summary>
+             /// Delta time of every object in this island
+-- 
+2.54.0.windows.1
+

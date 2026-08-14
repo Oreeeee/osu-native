@@ -1,0 +1,32 @@
+From 96018961f56d3655208f44a94b6ff188cad2e46b Mon Sep 17 00:00:00 2001
+From: Oreeeee <oree3ee@gmail.com>
+Date: Sat, 15 Aug 2026 01:49:25 +0200
+Subject: [PATCH 1/2] HACK: Don't create CancellationTokenSource inside
+ DifficultyCalculator.Calculate
+
+---
+ osu.Game/Rulesets/Difficulty/DifficultyCalculator.cs | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/osu.Game/Rulesets/Difficulty/DifficultyCalculator.cs b/osu.Game/Rulesets/Difficulty/DifficultyCalculator.cs
+index bd7f3c2..be0b4ac 100644
+--- a/osu.Game/Rulesets/Difficulty/DifficultyCalculator.cs
++++ b/osu.Game/Rulesets/Difficulty/DifficultyCalculator.cs
+@@ -64,10 +64,14 @@ public DifficultyAttributes Calculate(CancellationToken cancellationToken = defa
+         /// <returns>A structure describing the difficulty of the beatmap.</returns>
+         public DifficultyAttributes Calculate([NotNull] IEnumerable<Mod> mods, CancellationToken cancellationToken = default)
+         {
++			// HACK: Do not create CancellationTokenSource, in order to not let the Dispose run on it.
++			// On Windows XP, CancellationTokenSource.Dispose() happens to call a kernel32 method that hangs the thread.
++			/*
+             using var timedCancellationSource = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+ 
+             if (!cancellationToken.CanBeCanceled)
+                 cancellationToken = timedCancellationSource.Token;
++			*/
+ 
+             cancellationToken.ThrowIfCancellationRequested();
+             // ReSharper disable once PossiblyMistakenUseOfCancellationToken
+-- 
+2.54.0.windows.1
+
