@@ -11,11 +11,84 @@ using osu.Game.Utils;
 using osu.Native.Compiler;
 using osu.Native.Structures.Difficulty;
 
+namespace osu.Native.Objects.Difficulty;
+
+public unsafe partial class OsuDifficultyCalculatorObject : IOsuNativeObject<DifficultyCalculatorContext<OsuDifficultyCalculator>>
+{
+    [OsuNativeFunction]
+    public static ErrorCode Create(RulesetHandle rulesetHandle, BeatmapHandle beatmapHandle, NativeOsuDifficultyCalculator* nativeOsuDifficultyCalculatorPtr)
+    {
+        Ruleset ruleset = rulesetHandle.Resolve();
+        FlatWorkingBeatmap beatmap = beatmapHandle.Resolve();
+
+        if (ruleset is not OsuRuleset)
+            return ErrorCode.UnexpectedRuleset;
+
+        OsuDifficultyCalculator calculator = (OsuDifficultyCalculator)ruleset.CreateDifficultyCalculator(beatmap);
+        DifficultyCalculatorContext<OsuDifficultyCalculator> context = new(ruleset, beatmap, calculator);
+
+        *nativeOsuDifficultyCalculatorPtr = new() { Handle = ManagedObjectStore.Store(context) };
+        return ErrorCode.Success;
+    }
+
+    [OsuNativeFunction]
+    public static ErrorCode Calculate(OsuDifficultyCalculatorHandle calcHandle, ModsCollectionHandle modsHandle, NativeOsuDifficultyAttributes* nativeAttributesPtr)
+    {
+        DifficultyCalculatorContext<OsuDifficultyCalculator> context = calcHandle.Resolve();
+        Mod[] mods = modsHandle.IsNull ? [] : [.. modsHandle.Resolve().Select(x => x.ToMod(context.Ruleset))];
+
+        OsuDifficultyAttributes attributes = (OsuDifficultyAttributes)context.Calculator.Calculate(mods);
+        *nativeAttributesPtr = new(attributes);
+
+        return ErrorCode.Success;
+    }
+
+    [OsuNativeFunction]
+    public static ErrorCode CalculateTimed(OsuDifficultyCalculatorHandle calcHandle, ModsCollectionHandle modsHandle, NativeTimedOsuDifficultyAttributes* nativeTimedAttributesBuffer, int* bufferSize)
+    {
+        DifficultyCalculatorContext<OsuDifficultyCalculator> context = calcHandle.Resolve();
+        Mod[] mods = modsHandle.IsNull ? [] : [.. modsHandle.Resolve().Select(x => x.ToMod(context.Ruleset))];
+
+        if (nativeTimedAttributesBuffer is null)
+        {
+            *bufferSize = context.Beatmap.GetPlayableBeatmap(context.Ruleset.RulesetInfo, mods).HitObjects.Count;
+            return ErrorCode.BufferSizeQuery;
+        }
+
+        List<TimedDifficultyAttributes> attributes = context.Calculator.CalculateTimed(mods);
+        NativeTimedOsuDifficultyAttributes[] nativeAttributes = [.. attributes.Select(x => new NativeTimedOsuDifficultyAttributes(x))];
+
+        BufferHelper.Write(nativeAttributes, nativeTimedAttributesBuffer, bufferSize);
+        return ErrorCode.Success;
+    }
+
+    [OsuNativeFunction]
+    public static ErrorCode CalculateStrains(OsuDifficultyCalculatorHandle calcHandle, ModsCollectionHandle modsHandle, double* strainsBuffer, int* bufferSize, int* seriesCount, int* seriesLength, double* startTime, double* sectionLength)
+    {
+        DifficultyCalculatorContext<OsuDifficultyCalculator> context = calcHandle.Resolve();
+        Mod[] mods = modsHandle.IsNull ? [] : [.. modsHandle.Resolve().Select(x => x.ToMod(context.Ruleset))];
+
+        if (strainsBuffer is null || context.PendingStrains is null)
+        {
+            NativeOsuStrainCalculator calculator = new NativeOsuStrainCalculator(context.Ruleset.RulesetInfo, context.Beatmap);
+            calculator.Calculate(mods);
+            context.PendingStrains = calculator.Result;
+        }
+
+        StrainCalculationResult result = context.PendingStrains ?? new StrainCalculationResult(0, 0, []);
+        ErrorCode error = result.Write(strainsBuffer, bufferSize, seriesCount, seriesLength, startTime, sectionLength);
+
+        if (strainsBuffer is not null)
+            context.PendingStrains = null;
+
+        return error;
+    }
+}
+
 internal sealed class NativeOsuStrainCalculator : OsuDifficultyCalculator
 {
     private const double section_length = 400;
     private DifficultyHitObject[] difficultyObjects = [];
-    private double firstDifficultyObjectTime = double.NaN;
     private double clockRate = 1;
 
     public StrainCalculationResult Result { get; private set; } = new StrainCalculationResult(0, 0, []);
@@ -28,7 +101,6 @@ internal sealed class NativeOsuStrainCalculator : OsuDifficultyCalculator
     protected override Skill[] CreateSkills(IBeatmap beatmap, Mod[] mods)
     {
         difficultyObjects = [];
-        firstDifficultyObjectTime = double.NaN;
         clockRate = ModUtils.CalculateRateWithMods(mods);
         return base.CreateSkills(beatmap, mods);
     }
@@ -36,10 +108,6 @@ internal sealed class NativeOsuStrainCalculator : OsuDifficultyCalculator
     protected override IEnumerable<DifficultyHitObject> CreateDifficultyHitObjects(IBeatmap beatmap, Mod[] mods)
     {
         difficultyObjects = base.CreateDifficultyHitObjects(beatmap, mods).ToArray();
-
-        if (difficultyObjects.Length > 0)
-            firstDifficultyObjectTime = difficultyObjects[0].StartTime;
-
         return difficultyObjects;
     }
 
@@ -53,7 +121,7 @@ internal sealed class NativeOsuStrainCalculator : OsuDifficultyCalculator
         Reading reading = skills.OfType<Reading>().Single();
         Flashlight flashlight = skills.OfType<Flashlight>().SingleOrDefault();
 
-        double calculationStartTime = double.IsNaN(firstDifficultyObjectTime) ? 0 : Math.Ceiling(firstDifficultyObjectTime / section_length) * section_length - section_length;
+        double calculationStartTime = difficultyObjects.Length == 0 ? 0 : Math.Ceiling(difficultyObjects[0].StartTime / section_length) * section_length - section_length;
 
         List<double[]> series = new List<double[]>
         {
@@ -77,11 +145,13 @@ internal sealed class NativeOsuStrainCalculator : OsuDifficultyCalculator
         if (objects.Length == 0 || values.Count == 0)
             return [];
 
+        if (objects.Length != values.Count)
+            throw new InvalidOperationException("Difficulty object and skill difficulty counts do not match.");
+
         int length = Math.Max(1, (int)Math.Floor((objects[objects.Length - 1].StartTime - startTime) / sectionLength) + 1);
         double[] result = new double[length];
-        int count = Math.Min(objects.Length, values.Count);
 
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < objects.Length; i++)
         {
             int section = (int)Math.Floor((objects[i].StartTime - startTime) / sectionLength);
 
