@@ -1,4 +1,15 @@
-using osu.Native.Objects.Difficulty;
+using osu.Game.Beatmaps;
+using osu.Game.Rulesets;
+using osu.Game.Rulesets.Difficulty;
+using osu.Game.Rulesets.Difficulty.Preprocessing;
+using osu.Game.Rulesets.Difficulty.Skills;
+using osu.Game.Rulesets.Mods;
+using osu.Game.Rulesets.Osu;
+using osu.Game.Rulesets.Osu.Difficulty;
+using osu.Game.Rulesets.Osu.Difficulty.Skills;
+using osu.Game.Utils;
+using osu.Native.Compiler;
+using osu.Native.Structures.Difficulty;
 
 internal sealed class NativeOsuStrainCalculator : OsuDifficultyCalculator
 {
