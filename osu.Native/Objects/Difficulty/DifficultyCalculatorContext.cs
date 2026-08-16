@@ -1,4 +1,4 @@
-﻿using osu.Game.Beatmaps;
+using osu.Game.Beatmaps;
 using osu.Game.Rulesets;
 using osu.Game.Rulesets.Difficulty;
 using osu.Game.Online.API;
@@ -29,4 +29,7 @@ public class DifficultyCalculatorContext<TCalculator>(Ruleset ruleset, FlatWorki
     /// The difficulty calculator this context is wrapping.
     /// </summary>
     public TCalculator Calculator { get; } = calculator;
+
+    // Used only to retain a strain result between BufferSizeQuery and the following buffer write.
+    internal StrainCalculationResult? PendingStrains { get; set; }
 }
